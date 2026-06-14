@@ -1,33 +1,90 @@
-import cv2,os
+import cv2
 import numpy as np
 from PIL import Image
+import os
 
-recognizer = cv2.face.createLBPHFaceRecognizer()
-detector= cv2.CascadeClassifier("haarcascade_frontalface_default.xml");
+# Create LBPH recognizer
+recognizer = cv2.face.LBPHFaceRecognizer_create()
+
+# Face detector
+detector = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)
+
 
 def getImagesAndLabels(path):
-    #get the path of all the files in the folder
-    imagePaths=[os.path.join(path,f) for f in os.listdir(path)] 
-    #create empth face list
-    faceSamples=[]
-    #create empty ID list
-    Ids=[]
-    #now looping through all the image paths and loading the Ids and the images
-    for imagePath in imagePaths:
-        #loading the image and converting it to gray scale
-        pilImage=Image.open(imagePath).convert('L')
-        #Now we are converting the PIL image into numpy array
-        imageNp=np.array(pilImage,'uint8')
-        #getting the Id from the image
-        Id=int(os.path.split(imagePath)[-1].split(".")[1])
-        # extract the face from the training image sample
-        faces=detector.detectMultiScale(imageNp)
-        #If a face is there then append that in the list as well as Id of it
-        for (x,y,w,h) in faces:
-            faceSamples.append(imageNp[y:y+h,x:x+w])
-            Ids.append(Id)
-    return faceSamples,Ids
+    imagePaths = [
+        os.path.join(path, f)
+        for f in os.listdir(path)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
 
-faces,Ids = getImagesAndLabels('dataSet')
-recognizer.train(faces, np.array(Ids))
-recognizer.save('trainner/trainner.yml')
+    faceSamples = []
+    ids = []
+
+    for imagePath in imagePaths:
+
+        try:
+            # Convert image to grayscale
+            pilImage = Image.open(imagePath).convert("L")
+            imageNp = np.array(pilImage, "uint8")
+
+            fileName = os.path.split(imagePath)[-1]
+
+            parts = fileName.split(".")
+
+            # Expected format:
+            # User.<ID>.<Sample>.jpg
+            if len(parts) < 4:
+                print(f"Skipping invalid filename: {fileName}")
+                continue
+
+            try:
+                userId = int(parts[1])
+            except ValueError:
+                print(f"Skipping invalid ID file: {fileName}")
+                continue
+
+            faces = detector.detectMultiScale(imageNp)
+
+            if len(faces) == 0:
+                print(f"No face detected: {fileName}")
+                continue
+
+            for (x, y, w, h) in faces:
+                faceSamples.append(imageNp[y:y+h, x:x+w])
+                ids.append(userId)
+
+        except Exception as e:
+            print(f"Error processing {imagePath}: {e}")
+
+    return faceSamples, ids
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DATASET_PATH = os.path.join(BASE_DIR, "dataset")
+TRAINNER_PATH = os.path.join(BASE_DIR, "trainner")
+
+os.makedirs(TRAINNER_PATH, exist_ok=True)
+
+print("Training faces...")
+
+faces, ids = getImagesAndLabels(DATASET_PATH)
+
+if len(faces) == 0:
+    raise Exception(
+        "No valid faces found in dataset folder. "
+        "Check image names and ensure faces are visible."
+    )
+
+recognizer.train(faces, np.array(ids))
+
+MODEL_FILE = os.path.join(TRAINNER_PATH, "trainner.yml")
+
+recognizer.write(MODEL_FILE)
+
+print("\nTraining Complete!")
+print(f"Faces trained: {len(faces)}")
+print(f"Unique IDs: {len(set(ids))}")
+print(f"Model saved to: {MODEL_FILE}")
